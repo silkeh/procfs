@@ -182,13 +182,35 @@ func (r *reader) readLayout(p string) (l *LayoutUsage) {
 	return
 }
 
+func (r *reader) readDeviceInfo(d string) map[string]*Device {
+	if r.err != nil {
+		return nil
+	}
+
+	devs := r.listFiles("devices")
+	info := make(map[string]*Device, len(devs))
+	for _, n := range devs {
+		info[n] = &Device{
+			Size: 512 * r.readValue("devices/"+n+"/size"), // TODO: perform lookup for sector size
+		}
+	}
+
+	return info
+}
+
 // readFilesystemStats reads Btrfs statistics for a filesystem.
 func (r *reader) readFilesystemStats() (s *Stats) {
 	s = &Stats{
-		// Read basic filesystem statistics
+		// Read basic filesystem information
+		Label:          r.readFile("label"),
+		MetadataUUID:   r.readFile("metadata_uuid"),
+		Features:       r.listFiles("features"),
 		CloneAlignment: r.readValue("clone_alignment"),
 		NodeSize:       r.readValue("nodesize"),
 		SectorSize:     r.readValue("sectorsize"),
+
+		// Get device info
+		Devices: r.readDeviceInfo("devices"),
 
 		// Read allocation data
 		Allocation: Allocation{
@@ -199,12 +221,5 @@ func (r *reader) readFilesystemStats() (s *Stats) {
 			System:            r.readAllocationStats("allocation/system"),
 		},
 	}
-
-	// Read label, UUID and features
-	s.Label = r.readFile("label")
-	s.MetadataUUID = r.readFile("metadata_uuid")
-	s.Features = r.listFiles("features")
-	s.Devices = r.listFiles("devices")
-
 	return
 }

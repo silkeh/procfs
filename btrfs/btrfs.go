@@ -18,7 +18,7 @@ package btrfs
 type Stats struct {
 	MetadataUUID, Label                  string
 	Allocation                           Allocation
-	Devices                              []string
+	Devices                              map[string]*Device
 	Features                             []string
 	CloneAlignment, NodeSize, SectorSize uint64
 }
@@ -53,4 +53,9 @@ type AllocationStats struct {
 // LayoutUsage contains additional usage statistics for a disk layout.
 type LayoutUsage struct {
 	UsedBytes, TotalBytes uint64
+}
+
+// Device contains information about a device that is part of a Btrfs filesystem.
+type Device struct {
+	Size uint64
 }
