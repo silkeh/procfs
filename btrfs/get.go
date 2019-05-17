@@ -24,6 +24,9 @@ import (
 	"github.com/prometheus/procfs/internal/fs"
 )
 
+// SectorSize contains the default Linux sector size
+const SectorSize = 512
+
 // FS represents the pseudo-filesystem sys, which provides an interface to
 // kernel data structures.
 type FS struct {
@@ -36,11 +39,11 @@ func NewFS(mountPoint string) (FS, error) {
 	if strings.TrimSpace(mountPoint) == "" {
 		mountPoint = fs.DefaultSysMountPoint
 	}
-	fs, err := fs.NewFS(mountPoint)
+	sys, err := fs.NewFS(mountPoint)
 	if err != nil {
 		return FS{}, err
 	}
-	return FS{&fs}, nil
+	return FS{&sys}, nil
 }
 
 // Stats retrieves Btrfs filesystem runtime statistics for each mounted Btrfs filesystem.
@@ -52,15 +55,16 @@ func (fs FS) Stats() ([]*Stats, error) {
 
 	stats := make([]*Stats, 0, len(matches))
 	for _, uuidPath := range matches {
-		// "*-*" in glob above indicates the UUID of the Btrfs filesystem.
-		uuid := filepath.Base(uuidPath)
-
 		s, err := GetStats(uuidPath)
 		if err != nil {
 			return nil, err
 		}
 
-		s.UUID = uuid
+		// Set the UUID from the path when it could not be retrieved from the filesystem.
+		if s.UUID == "" {
+			s.UUID = filepath.Base(uuidPath)
+		}
+
 		stats = append(stats, s)
 	}
 
@@ -95,17 +99,17 @@ func (r *reader) exists(p string) bool {
 }
 
 // readFile reads a file relative to the path of the reader.
+// Non-existing files are ignored.
 func (r *reader) readFile(n string) string {
 	b, err := ioutil.ReadFile(path.Join(r.path, n))
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		r.err = err
 	}
 	return strings.TrimSpace(string(b))
 }
 
-// readOptionalValues reads a number of numerical values into an uint64 slice.
-// Any errors are ignored.
-func (r *reader) readOptionalValue(n string) (v uint64) {
+// readValues reads a number of numerical values into an uint64 slice.
+func (r *reader) readValue(n string) (v uint64) {
 	// Read value from file
 	s := r.readFile(n)
 	if r.err != nil {
@@ -114,23 +118,6 @@ func (r *reader) readOptionalValue(n string) (v uint64) {
 
 	// Convert number
 	v, _ = strconv.ParseUint(s, 10, 64)
-	return
-}
-
-// readValues reads a number of numerical values into an uint64 slice.
-func (r *reader) readValue(n string) (v uint64) {
-	if r.err != nil {
-		return
-	}
-
-	// Read value from file
-	s := r.readFile(n)
-	if r.err != nil {
-		return
-	}
-
-	// Convert number
-	v, r.err = strconv.ParseUint(s, 10, 64)
 	return
 }
 
@@ -151,10 +138,6 @@ func (r *reader) listFiles(p string) []string {
 
 // readAllocationStats reads Btrfs allocation data for the current path.
 func (r *reader) readAllocationStats(d string) (a *AllocationStats) {
-	if r.err != nil {
-		return
-	}
-
 	// Create a reader for this subdirectory
 	sr := &reader{path: path.Join(r.path, d), devCount: r.devCount}
 
@@ -183,7 +166,7 @@ func (r *reader) readAllocationStats(d string) (a *AllocationStats) {
 		Raid10: sr.readLayout("raid10"),
 	}
 
-	// Pass the error back
+	// Pass any error back
 	r.err = sr.err
 
 	return
@@ -220,15 +203,11 @@ func (r *reader) calcRatio(p string) float64 {
 }
 
 func (r *reader) readDeviceInfo(d string) map[string]*Device {
-	if r.err != nil {
-		return nil
-	}
-
 	devs := r.listFiles("devices")
 	info := make(map[string]*Device, len(devs))
 	for _, n := range devs {
 		info[n] = &Device{
-			Size: 512 * r.readValue("devices/"+n+"/size"), // TODO: perform lookup for sector size
+			Size: SectorSize * r.readValue("devices/"+n+"/size"),
 		}
 	}
 
@@ -243,14 +222,15 @@ func (r *reader) readFilesystemStats() (s *Stats) {
 
 	s = &Stats{
 		// Read basic filesystem information
-		Label: r.readFile("label"),
-		//UUID:   r.readFile("metadata_uuid"), TODO
+		Label:          r.readFile("label"),
+		UUID:           r.readFile("metadata_uuid"),
 		Features:       r.listFiles("features"),
 		CloneAlignment: r.readValue("clone_alignment"),
 		NodeSize:       r.readValue("nodesize"),
+		QuotaOverride:  r.readValue("quota_override"),
 		SectorSize:     r.readValue("sectorsize"),
 
-		// Get device info
+		// Device info
 		Devices: devices,
 
 		// Read allocation data
