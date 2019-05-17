@@ -51,7 +51,7 @@ func TestFSBtrfsStats(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		if want, got := tt.uuid, stats[i].MetadataUUID; want != got {
+		if want, got := tt.uuid, stats[i].UUID; want != got {
 			t.Errorf("unexpected stats name:\nwant: %q\nhave: %q", want, got)
 		}
 

@@ -52,11 +52,15 @@ func (fs FS) Stats() ([]*Stats, error) {
 
 	stats := make([]*Stats, 0, len(matches))
 	for _, uuidPath := range matches {
+		// "*-*" in glob above indicates the UUID of the Btrfs filesystem.
+		uuid := filepath.Base(uuidPath)
+
 		s, err := GetStats(uuidPath)
 		if err != nil {
 			return nil, err
 		}
 
+		s.UUID = uuid
 		stats = append(stats, s)
 	}
 
@@ -65,15 +69,16 @@ func (fs FS) Stats() ([]*Stats, error) {
 
 // GetStats collects all Btrfs statistics from sysfs
 func GetStats(uuidPath string) (*Stats, error) {
-	r := &reader{uuidPath, nil}
+	r := &reader{path: uuidPath}
 	s := r.readFilesystemStats()
 
 	return s, r.err
 }
 
 type reader struct {
-	path string
-	err  error
+	path     string
+	err      error
+	devCount int
 }
 
 // exists checks if the current path exists
@@ -96,6 +101,20 @@ func (r *reader) readFile(n string) string {
 		r.err = err
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// readOptionalValues reads a number of numerical values into an uint64 slice.
+// Any errors are ignored.
+func (r *reader) readOptionalValue(n string) (v uint64) {
+	// Read value from file
+	s := r.readFile(n)
+	if r.err != nil {
+		return
+	}
+
+	// Convert number
+	v, _ = strconv.ParseUint(s, 10, 64)
+	return
 }
 
 // readValues reads a number of numerical values into an uint64 slice.
@@ -137,7 +156,7 @@ func (r *reader) readAllocationStats(d string) (a *AllocationStats) {
 	}
 
 	// Create a reader for this subdirectory
-	sr := &reader{path.Join(r.path, d), nil}
+	sr := &reader{path: path.Join(r.path, d), devCount: r.devCount}
 
 	// Get the stats
 	a = &AllocationStats{
@@ -179,7 +198,25 @@ func (r *reader) readLayout(p string) (l *LayoutUsage) {
 	l = new(LayoutUsage)
 	l.TotalBytes = r.readValue(path.Join(p, "total_bytes"))
 	l.UsedBytes = r.readValue(path.Join(p, "used_bytes"))
+	l.Ratio = r.calcRatio(p)
+
 	return
+}
+
+// calcRatio returns the calculated ratio for a layout mode.
+func (r *reader) calcRatio(p string) float64 {
+	switch p {
+	case "single", "raid0":
+		return 1
+	case "dup", "raid1", "raid10":
+		return 2
+	case "raid5":
+		return float64(r.devCount) / (float64(r.devCount) - 1)
+	case "raid6":
+		return float64(r.devCount) / (float64(r.devCount) - 2)
+	default:
+		return 0
+	}
 }
 
 func (r *reader) readDeviceInfo(d string) map[string]*Device {
@@ -200,17 +237,21 @@ func (r *reader) readDeviceInfo(d string) map[string]*Device {
 
 // readFilesystemStats reads Btrfs statistics for a filesystem.
 func (r *reader) readFilesystemStats() (s *Stats) {
+	// First get disk info, and add it to reader
+	devices := r.readDeviceInfo("devices")
+	r.devCount = len(devices)
+
 	s = &Stats{
 		// Read basic filesystem information
-		Label:          r.readFile("label"),
-		MetadataUUID:   r.readFile("metadata_uuid"),
+		Label: r.readFile("label"),
+		//UUID:   r.readFile("metadata_uuid"), TODO
 		Features:       r.listFiles("features"),
 		CloneAlignment: r.readValue("clone_alignment"),
 		NodeSize:       r.readValue("nodesize"),
 		SectorSize:     r.readValue("sectorsize"),
 
 		// Get device info
-		Devices: r.readDeviceInfo("devices"),
+		Devices: devices,
 
 		// Read allocation data
 		Allocation: Allocation{
