@@ -45,7 +45,8 @@ type AllocationStats struct {
 	UsedBytes        uint64
 	TotalBytes       uint64
 
-	// Flags TODO
+	// Flags marking filesystem state
+	// See Linux fs/btrfs/ctree.h for more information.
 	Flags uint64
 
 	// Additional disk usage statistics depending on the disk layout.

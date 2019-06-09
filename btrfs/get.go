@@ -24,7 +24,9 @@ import (
 	"github.com/prometheus/procfs/internal/fs"
 )
 
-// SectorSize contains the default Linux sector size
+// SectorSize contains the Linux sector size.
+// > Linux always considers sectors to be 512 bytes long independently
+// > of the devices real block size.
 const SectorSize = 512
 
 // FS represents the pseudo-filesystem sys, which provides an interface to
@@ -211,6 +213,7 @@ func (r *reader) calcRatio(p string) float64 {
 	}
 }
 
+// readDeviceInfo returns the information for all devices associated with this filesystem.
 func (r *reader) readDeviceInfo(d string) map[string]*Device {
 	devs := r.listFiles("devices")
 	info := make(map[string]*Device, len(devs))
