@@ -154,22 +154,31 @@ func (r *reader) readAllocationStats(d string) (a *AllocationStats) {
 		Flags:            sr.readValue("flags"),
 		TotalBytes:       sr.readValue("total_bytes"),
 		TotalPinnedBytes: sr.readValue("total_bytes_pinned"),
-
-		// Try to read all values for all layouts.
-		// One of these should succeed.
-		Single: sr.readLayout("single"),
-		Dup:    sr.readLayout("dup"),
-		Raid0:  sr.readLayout("raid0"),
-		Raid1:  sr.readLayout("raid1"),
-		Raid5:  sr.readLayout("raid5"),
-		Raid6:  sr.readLayout("raid6"),
-		Raid10: sr.readLayout("raid10"),
+		Layouts:          sr.readLayouts(),
 	}
 
 	// Pass any error back
 	r.err = sr.err
 
 	return
+}
+
+// readLayouts reads all Btrfs layout statistics for the current path
+func (r *reader) readLayouts() map[string]*LayoutUsage {
+	files, err := ioutil.ReadDir(r.path)
+	if err != nil {
+		r.err = err
+		return nil
+	}
+
+	m := make(map[string]*LayoutUsage)
+	for _, f := range files {
+		if f.IsDir() {
+			m[f.Name()] = r.readLayout(f.Name())
+		}
+	}
+
+	return m
 }
 
 // readLayout reads the Btrfs layout statistics for an allocation layout.

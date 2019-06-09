@@ -50,7 +50,7 @@ type AllocationStats struct {
 
 	// Additional disk usage statistics depending on the disk layout.
 	// At least one of these will exist and not be nil.
-	Single, Dup, Raid0, Raid1, Raid5, Raid6, Raid10 *LayoutUsage
+	Layouts map[string]*LayoutUsage
 }
 
 // LayoutUsage contains additional usage statistics for a disk layout.
